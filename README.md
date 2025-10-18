@@ -16,4 +16,6 @@ The dataset contains detials about following topics.
 6. Guest Habours
 7. Event (Previous events if needed in some cases)
 
-The extracted data was in a JSON-LD format and has flattened for our use. 
+The extracted data was in a JSON-LD format and has flattened for our use.  
+
+Decided to remove events and guest harbours. 
