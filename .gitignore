@@ -26,27 +26,26 @@ data/temp/
 .cache/
 __pycache__/
 
-# 📊 IDE & OS files
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
 
-# 🔄 Python packaging / build
+
 build/
 dist/
 *.egg-info/
 
-# 🧰 Jupyter / Colab artifacts
+
 .ipynb_checkpoints/
 *.ipynb_*
 *.jsonl
 
-# 🔐 Credentials (never commit!)
+
 *.pem
 *.key
 *.crt
 
-# 📁 Node / Web stuff (if frontend exists)
+
 node_modules/
 package-lock.json
