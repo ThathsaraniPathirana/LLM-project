@@ -57,24 +57,33 @@ st.markdown("""
 
 st.sidebar.markdown("## 🧭 GuideMe Tools")
 
+# Initialize dynamic uploader key
+if "uploader_key" not in st.session_state:
+    st.session_state.uploader_key = 0
+
 uploaded_file = st.sidebar.file_uploader(
     "📸 Upload an image (optional)",
     type=["jpg", "jpeg", "png"],
-    key="image_uploader"
+    key=f"image_uploader_{st.session_state.uploader_key}"
 )
 
 if uploaded_file:
     st.session_state.uploaded_image = uploaded_file
     try:
-        st.sidebar.image(uploaded_file, caption=uploaded_file.name, use_container_width=True)
+        st.sidebar.image(uploaded_file, caption=uploaded_file.name, use_column_width=True)
     except TypeError:
         st.sidebar.image(uploaded_file, caption=uploaded_file.name, width=300)
 
     if st.sidebar.button("Remove image"):
         st.session_state.uploaded_image = None
+        st.session_state.uploader_key += 1  # force uploader to reset
         st.rerun()
 
-show_debug = st.sidebar.checkbox("🔧 Show RAG Debug Info", value=False)
+
+
+# show_debug = st.sidebar.checkbox("🔧 Show RAG Debug Info", value=False)
+
+show_debug = False
 st.sidebar.markdown("---")
 st.sidebar.caption("Upload a photo of a place or landmark 🏰 — I’ll try to identify it for you!")
 
