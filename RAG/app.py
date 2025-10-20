@@ -175,25 +175,28 @@ if user_query:
     # restaurant rating context
     restaurant_context = ""
     top_rated = []
-    if is_food_query and restaurant_ratings:
-        matched = []
+    if is_food_query and isinstance(restaurant_ratings, list):
+        matched = [r for r in restaurant_ratings if isinstance(r, dict)]
         if place_name:
             matched = [
-                r for r in restaurant_ratings
+                r for r in matched
                 if place_name.lower() in (r.get("formattedAddress", "") + r.get("name", "")).lower()
             ]
-        top_rated = sorted(matched, key=lambda x: x.get("rating", 0), reverse=True)[:6]
+        top_rated = sorted(matched, key=lambda x: x.get("rating") or 0, reverse=True)[:6]
 
-        if top_rated:
-            restaurant_context = "\n\n".join([
-                f"{r['name']} — Rated {r.get('rating','?')}/5 "
-                f"({r.get('userRatingCount','?')} reviews). "
-                f"Located at {r.get('formattedAddress','N/A')}. "
-                f"Google Maps: {r.get('googleMapsUri','')}"
-                for r in top_rated
-            ])
-            if show_debug:
-                st.sidebar.success(f"Found {len(top_rated)} matching restaurants for {place_name}")
+    else:
+        top_rated = []
+
+    if top_rated:
+        restaurant_context = "\n\n".join([
+            f"{r['name']} — Rated {r.get('rating','?')}/5 "
+            f"({r.get('userRatingCount','?')} reviews). "
+            f"Located at {r.get('formattedAddress','N/A')}. "
+            f"Google Maps: {r.get('googleMapsUri','')}"
+            for r in top_rated
+        ])
+        if show_debug:
+            st.sidebar.success(f"Found {len(top_rated)} matching restaurants for {place_name}")
 
     
     if is_summary_request:
