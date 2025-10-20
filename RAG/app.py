@@ -19,11 +19,20 @@ client = genai.Client(api_key=GOOGLE_API_KEY)
 dataset = load_dataset()
 vectordb = build_vectorstore(dataset)
 
+# load friendly Q&A dataset
+try:
+    with open("qa.json", "r", encoding="utf-8") as f:
+        qa_pairs = json.load(f)
+    # st.sidebar.success("QA dataset loaded successfully ✅")
+except Exception as e:
+    qa_pairs = []
+    st.sidebar.error(f"Could not load QA dataset: {e}")
+
 # load restaurants data from separate json
 try:
     with open("ratings_food.json", "r", encoding="utf-8") as f:
         restaurant_ratings = json.load(f)
-    st.sidebar.success("Restaurant ratings dataset loaded")
+    # st.sidebar.success("Restaurant ratings dataset loaded")
 except Exception as e:
     restaurant_ratings = []
     st.sidebar.error(f"Could not load restaurant dataset: {e}")
@@ -48,24 +57,33 @@ st.markdown("""
 
 st.sidebar.markdown("## 🧭 GuideMe Tools")
 
+# Initialize dynamic uploader key
+if "uploader_key" not in st.session_state:
+    st.session_state.uploader_key = 0
+
 uploaded_file = st.sidebar.file_uploader(
     "📸 Upload an image (optional)",
     type=["jpg", "jpeg", "png"],
-    key="image_uploader"
+    key=f"image_uploader_{st.session_state.uploader_key}"
 )
 
 if uploaded_file:
     st.session_state.uploaded_image = uploaded_file
     try:
-        st.sidebar.image(uploaded_file, caption=uploaded_file.name, use_container_width=True)
+        st.sidebar.image(uploaded_file, caption=uploaded_file.name, use_column_width=True)
     except TypeError:
         st.sidebar.image(uploaded_file, caption=uploaded_file.name, width=300)
 
     if st.sidebar.button("Remove image"):
         st.session_state.uploaded_image = None
+        st.session_state.uploader_key += 1  # force uploader to reset
         st.rerun()
 
-show_debug = st.sidebar.checkbox("🔧 Show RAG Debug Info", value=False)
+
+
+# show_debug = st.sidebar.checkbox("🔧 Show RAG Debug Info", value=False)
+
+show_debug = False
 st.sidebar.markdown("---")
 st.sidebar.caption("Upload a photo of a place or landmark 🏰 — I’ll try to identify it for you!")
 
@@ -153,6 +171,15 @@ if user_query:
         for d in docs
     )
 
+    # Add friendly Q&A context if any matching question exists
+    if qa_pairs:
+        for qa in qa_pairs:
+            if qa["question"].lower() in norm_q.lower():
+                context += f"\n\nAdditional Q&A:\nQ: {qa['question']}\nA: {qa['answer']}"
+                break
+
+
+
     # Detect if summarization or restaurant question
     q_lower = norm_q.lower()
     is_summary_request = any(word in q_lower for word in ["summarize", "summary", "overview", "short version"])
@@ -175,25 +202,28 @@ if user_query:
     # restaurant rating context
     restaurant_context = ""
     top_rated = []
-    if is_food_query and restaurant_ratings:
-        matched = []
+    if is_food_query and isinstance(restaurant_ratings, list):
+        matched = [r for r in restaurant_ratings if isinstance(r, dict)]
         if place_name:
             matched = [
-                r for r in restaurant_ratings
+                r for r in matched
                 if place_name.lower() in (r.get("formattedAddress", "") + r.get("name", "")).lower()
             ]
-        top_rated = sorted(matched, key=lambda x: x.get("rating", 0), reverse=True)[:6]
+        top_rated = sorted(matched, key=lambda x: x.get("rating") or 0, reverse=True)[:6]
 
-        if top_rated:
-            restaurant_context = "\n\n".join([
-                f"{r['name']} — Rated {r.get('rating','?')}/5 "
-                f"({r.get('userRatingCount','?')} reviews). "
-                f"Located at {r.get('formattedAddress','N/A')}. "
-                f"Google Maps: {r.get('googleMapsUri','')}"
-                for r in top_rated
-            ])
-            if show_debug:
-                st.sidebar.success(f"Found {len(top_rated)} matching restaurants for {place_name}")
+    else:
+        top_rated = []
+
+    if top_rated:
+        restaurant_context = "\n\n".join([
+            f"{r['name']} — Rated {r.get('rating','?')}/5 "
+            f"({r.get('userRatingCount','?')} reviews). "
+            f"Located at {r.get('formattedAddress','N/A')}. "
+            f"Google Maps: {r.get('googleMapsUri','')}"
+            for r in top_rated
+        ])
+        if show_debug:
+            st.sidebar.success(f"Found {len(top_rated)} matching restaurants for {place_name}")
 
     
     if is_summary_request:
@@ -223,11 +253,14 @@ if user_query:
         - Be empathetic, enthusiastic, and conversational like a real travel guide.
         - Use context if relevant, and include real restaurant data when available.
         - Never invent details — rely on verified Swedish data or retrieved context.
+        - If a relevant question or topic exists in the **Q&A dataset (qa.json)**, prefer using that verified answer in your response, while keeping a natural tone.
+
 
         ### Knowledge:
         You have access to:
         - A Swedish tourism dataset (from ChromaDB)
         - Restaurant ratings (from Google Maps JSON)
+        - Common questions and answers about Swedish tradition and its culture (qa.json)
 
         ### Context:
         {context}
