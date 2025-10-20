@@ -12,7 +12,6 @@ from utils.rag_utils import load_dataset, build_vectorstore
 from utils.ui_utils import inject_css, render_bubble
 from PIL import Image
 
-# ----------------- PAGE CONFIG -----------------
 st.set_page_config(page_title="GuideMe Sweden", page_icon="🇸🇪", layout="wide")
 inject_css()
 
@@ -20,7 +19,15 @@ client = genai.Client(api_key=GOOGLE_API_KEY)
 dataset = load_dataset()
 vectordb = build_vectorstore(dataset)
 
-# ----------------- SESSION STATE -----------------
+# load restaurants data from separate json
+try:
+    with open("ratings_food.json", "r", encoding="utf-8") as f:
+        restaurant_ratings = json.load(f)
+    st.sidebar.success("Restaurant ratings dataset loaded")
+except Exception as e:
+    restaurant_ratings = []
+    st.sidebar.error(f"Could not load restaurant dataset: {e}")
+
 if "messages" not in st.session_state:
     st.session_state.messages = [
         {"role": "assistant", "content": "Hej hej! 👋 Welcome to Sweden. What would you like to explore today?"}
@@ -32,8 +39,6 @@ if "uploaded_image" not in st.session_state:
 if "last_location" not in st.session_state:
     st.session_state.last_location = None  # store lat/lon/city for follow-up
 
-
-# ----------------- HEADER -----------------
 st.markdown("""
 <div class="header-block">
     <div class="main-title">🇸🇪 GuideMe Sweden 🇸🇪</div>
@@ -41,8 +46,6 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-
-# ----------------- SIDEBAR -----------------
 st.sidebar.markdown("## 🧭 GuideMe Tools")
 
 uploaded_file = st.sidebar.file_uploader(
@@ -66,22 +69,16 @@ show_debug = st.sidebar.checkbox("🔧 Show RAG Debug Info", value=False)
 st.sidebar.markdown("---")
 st.sidebar.caption("Upload a photo of a place or landmark 🏰 — I’ll try to identify it for you!")
 
-
-# ----------------- CHAT DISPLAY -----------------
+# Chat display
 st.markdown('<div class="page">', unsafe_allow_html=True)
 chat_container = st.container()
 with chat_container:
     for msg in st.session_state.messages:
         render_bubble(msg["role"], msg["content"])
 
-
-# ----------------- CHAT INPUT -----------------
 user_query = st.chat_input("Ask something about Sweden...")
 
-
-# ===================================================
-# ============= RESTAURANT FOLLOW-UP LOGIC ==========
-# ===================================================
+# Restaurant followup logic
 if user_query and user_query.lower().strip() in [
     "yes", "sure", "ok", "okay", "please do", "yes please", "show me restaurants"
 ]:
@@ -113,19 +110,13 @@ if user_query and user_query.lower().strip() in [
             st.info("No restaurants found nearby. Try another location 🍽️")
         st.stop()
 
-
-# ===================================================
-# ================= NORMAL CHAT FLOW ================
-# ===================================================
+# <---------------- MAIN CHAT FLOW ---------------->
 if user_query:
     image_to_send = st.session_state.uploaded_image
     has_image = image_to_send is not None
 
     # Add user message
-    st.session_state.messages.append({
-        "role": "user",
-        "content": user_query
-    })
+    st.session_state.messages.append({"role": "user", "content": user_query})
     render_bubble("user", user_query)
 
     if has_image:
@@ -156,16 +147,55 @@ if user_query:
                 ) or " No documents retrieved."
             )
 
+    # build context
     context = "\n\n".join(
         f"{d.page_content}\nMeta:{json.dumps(d.metadata, ensure_ascii=False)}"
         for d in docs
     )
 
-    # ------------- DETECT SUMMARIZATION REQUEST -------------
+    # Detect if summarization or restaurant question
     q_lower = norm_q.lower()
-    is_summary_request = any(word in q_lower for word in ["summarize", "summary", "in short", "overview", "short version"])
+    is_summary_request = any(word in q_lower for word in ["summarize", "summary", "overview", "short version"])
+    is_food_query = any(word in q_lower for word in [
+        "restaurant", "food", "eat", "cafe", "lunch", "dinner", "pizza", "burger", "dining"
+    ])
 
-    # ------------- HYBRID PROMPT -------------
+    # Detect location name from docs or user query
+    place_name = None
+    if docs:
+        meta = docs[0].metadata
+        place_name = meta.get("city") or meta.get("region") or meta.get("name")
+
+    if not place_name:
+        for w in user_query.split():
+            if w.istitle() and len(w) > 3:
+                place_name = w
+                break
+
+    # restaurant rating context
+    restaurant_context = ""
+    top_rated = []
+    if is_food_query and restaurant_ratings:
+        matched = []
+        if place_name:
+            matched = [
+                r for r in restaurant_ratings
+                if place_name.lower() in (r.get("formattedAddress", "") + r.get("name", "")).lower()
+            ]
+        top_rated = sorted(matched, key=lambda x: x.get("rating", 0), reverse=True)[:6]
+
+        if top_rated:
+            restaurant_context = "\n\n".join([
+                f"{r['name']} — Rated {r.get('rating','?')}/5 "
+                f"({r.get('userRatingCount','?')} reviews). "
+                f"Located at {r.get('formattedAddress','N/A')}. "
+                f"Google Maps: {r.get('googleMapsUri','')}"
+                for r in top_rated
+            ])
+            if show_debug:
+                st.sidebar.success(f"Found {len(top_rated)} matching restaurants for {place_name}")
+
+    
     if is_summary_request:
         hybrid_prompt = f"""
         You are GuideMe Sweden, a concise and clear Swedish travel expert.
@@ -190,17 +220,19 @@ if user_query:
         ### Instructions:
         - Always respond in **English**, preserving Swedish names (Göteborg, Västra Götaland, etc.).
         - Be empathetic, enthusiastic, and conversational like a real travel guide.
-        - Use context if relevant, and feel free to add brief cultural insights or travel facts.
+        - Use context if relevant, and include real restaurant data when available.
         - Never invent details — rely on verified Swedish data or retrieved context.
 
         ### Knowledge:
-        You have access to a Swedish tourism dataset retrieved from a vector database.
-        This includes:
-        - Landmarks, cities, museums, hotels, and nature attractions.
-        - Restaurants and food establishments (category: "FoodEstablishment") with location coordinates.
+        You have access to:
+        - A Swedish tourism dataset (from ChromaDB)
+        - Restaurant ratings (from Google Maps JSON)
 
         ### Context:
         {context}
+
+        ### Restaurant Ratings (if relevant):
+        {restaurant_context if is_food_query else "No restaurant rating data relevant for this question."}
 
         ### Conversation so far:
         {[m['content'] for m in st.session_state.messages[-3:]]}
@@ -209,13 +241,13 @@ if user_query:
         {norm_q}
         """
 
-    # ------------- GEMINI MULTIMODAL INPUT -------------
+    # gemini multimodal call
     contents = [hybrid_prompt]
     if has_image:
         image = Image.open(image_to_send)
         contents.append(image)
 
-    # ------------- STREAMING RESPONSE -------------
+    # streaming
     placeholder = st.empty()
     streamed = ""
     try:
@@ -235,36 +267,25 @@ if user_query:
         final = preserve_swedish_names(streamed.strip())
         st.session_state.messages.append({"role": "assistant", "content": final})
 
-        # Skip restaurant suggestions if summarizing
-        if docs and not is_summary_request:
-            top_meta = docs[0].metadata
-            lat, lon = top_meta.get("latitude"), top_meta.get("longitude")
-            city = top_meta.get("city")
-
-            if lat and lon:
-                st.session_state.last_location = {"lat": float(lat), "lon": float(lon), "city": city}
-
-                nearby_restaurants = find_nearby_places(dataset, float(lat), float(lon), max_distance_km=10)
-                restaurants = [r for r in nearby_restaurants if r.get("category") == "FoodEstablishment"]
-
-                if restaurants:
-                    suggestion_msg = (
-                        f"I found some lovely restaurants near {city or 'this place'} 🍽️ — "
-                        f"would you like me to show you a few top-rated options?"
-                    )
-                else:
-                    suggestion_msg = (
-                        f"I couldn’t find specific restaurants near {city or 'this area'}, "
-                        f"but I can suggest popular Swedish dishes if you'd like ☕."
-                    )
-
-                st.session_state.messages.append({"role": "assistant", "content": suggestion_msg})
-                render_bubble("assistant", suggestion_msg)
+        # (Optional) Display restaurant cards visually
+        if top_rated:
+            st.markdown("### 🍽️ Top Rated Restaurants")
+            cols = st.columns(2)
+            for i, r in enumerate(top_rated):
+                with cols[i % 2]:
+                    st.markdown(f"""
+                    <div class="card">
+                        <strong>{r['name']}</strong><br>
+                        ⭐ {r.get('rating','?')}/5 ({r.get('userRatingCount','?')} reviews)<br>
+                        📍 {r.get('formattedAddress','')}<br>
+                        <a href="{r.get('googleMapsUri','')}" target="_blank">Open in Google Maps</a>
+                    </div>
+                    """, unsafe_allow_html=True)
 
     except Exception as e:
         st.error(f"Gemini streaming failed: {e}")
 
-    # Reset image session data
+    # Reset uploaded image
     st.session_state.uploaded_image = None
     st.session_state.uploaded_image_name = None
     st.rerun()
