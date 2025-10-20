@@ -19,11 +19,20 @@ client = genai.Client(api_key=GOOGLE_API_KEY)
 dataset = load_dataset()
 vectordb = build_vectorstore(dataset)
 
+# load friendly Q&A dataset
+try:
+    with open("qa.json", "r", encoding="utf-8") as f:
+        qa_pairs = json.load(f)
+    # st.sidebar.success("QA dataset loaded successfully ✅")
+except Exception as e:
+    qa_pairs = []
+    st.sidebar.error(f"Could not load QA dataset: {e}")
+
 # load restaurants data from separate json
 try:
     with open("ratings_food.json", "r", encoding="utf-8") as f:
         restaurant_ratings = json.load(f)
-    st.sidebar.success("Restaurant ratings dataset loaded")
+    # st.sidebar.success("Restaurant ratings dataset loaded")
 except Exception as e:
     restaurant_ratings = []
     st.sidebar.error(f"Could not load restaurant dataset: {e}")
@@ -153,6 +162,15 @@ if user_query:
         for d in docs
     )
 
+    # Add friendly Q&A context if any matching question exists
+    if qa_pairs:
+        for qa in qa_pairs:
+            if qa["question"].lower() in norm_q.lower():
+                context += f"\n\nAdditional Q&A:\nQ: {qa['question']}\nA: {qa['answer']}"
+                break
+
+
+
     # Detect if summarization or restaurant question
     q_lower = norm_q.lower()
     is_summary_request = any(word in q_lower for word in ["summarize", "summary", "overview", "short version"])
@@ -225,11 +243,14 @@ if user_query:
         - Be empathetic, enthusiastic, and conversational like a real travel guide.
         - Use context if relevant, and include real restaurant data when available.
         - Never invent details — rely on verified Swedish data or retrieved context.
+        - If a relevant question or topic exists in the **Q&A dataset (qa.json)**, prefer using that verified answer in your response, while keeping a natural tone.
+
 
         ### Knowledge:
         You have access to:
         - A Swedish tourism dataset (from ChromaDB)
         - Restaurant ratings (from Google Maps JSON)
+        - Common questions and answers about Swedish tradition and its culture (qa.json)
 
         ### Context:
         {context}
