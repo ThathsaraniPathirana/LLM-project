@@ -202,6 +202,7 @@ if user_query:
 
         ### Task:
         Summarize the relevant information about the place or topic mentioned below.
+        - Always respond in **English**, preserving Swedish names (Göteborg, Västra Götaland, etc.).
         - Provide a short, **3–4 sentence** summary.
         - Focus on key highlights and cultural or historical significance.
         - Avoid repetition or unnecessary details.
